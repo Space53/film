@@ -1,8 +1,10 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const url = require('url');
 
 const app = express();
 const server = http.createServer(app);
@@ -70,6 +72,150 @@ app.post('/api/companies/:id/add-member', (req, res) => {
   res.json({ success: true });
 });
 
+// ========== ПРОКСИ ДЛЯ ОБХОДА IFRAME ==========
+app.use('/proxy', (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.status(400).send('url required');
+
+  const parsed = url.parse(targetUrl);
+  const protocol = parsed.protocol === 'https:' ? https : http;
+
+  // Убираем /proxy из пути
+  const proxyPath = req.url.replace(/^\/proxy\?url=[^&]+/, '') || '/';
+  const options = {
+    hostname: parsed.hostname,
+    port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+    path: parsed.path + proxyPath,
+    method: req.method,
+    headers: {
+      ...req.headers,
+      host: parsed.hostname,
+      origin: parsed.protocol + '//' + parsed.hostname,
+      referer: parsed.protocol + '//' + parsed.hostname + '/'
+    }
+  };
+
+  delete options.headers['accept-encoding'];
+
+  const proxyReq = protocol.request(options, (proxyRes) => {
+    // Убираем запрещающие заголовки
+    delete proxyRes.headers['x-frame-options'];
+    delete proxyRes.headers['content-security-policy'];
+    delete proxyRes.headers['content-security-policy-report-only'];
+    proxyRes.headers['x-frame-options'] = 'ALLOWALL';
+    proxyRes.headers['access-control-allow-origin'] = '*';
+    proxyRes.headers['access-control-allow-credentials'] = 'true';
+
+    // Если HTML - внедряем скрипт синхронизации
+    const contentType = proxyRes.headers['content-type'] || '';
+    const isHtml = contentType.includes('text/html');
+
+    if (isHtml) {
+      let body = '';
+      proxyRes.on('data', chunk => body += chunk.toString());
+      proxyRes.on('end', () => {
+        const syncScript = `
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(function(){
+  if(window.__syncInjected) return;
+  window.__syncInjected = true;
+  const socket = io();
+  const companyId = '${req.query.companyId || ''}';
+  socket.emit('join-sync', {companyId});
+
+  function send(type, payload){
+    socket.emit('browser-action', {companyId, type, payload});
+  }
+
+  socket.on('browser-action', data => {
+    try{
+      if(data.type === 'scroll') window.scrollTo(data.payload.x, data.payload.y);
+      else if(data.type === 'click'){
+        const el = document.elementFromPoint(data.payload.x, data.payload.y);
+        if(el){ el.focus(); el.click(); }
+      }else if(data.type === 'input'){
+        const el = document.activeElement;
+        if(el && (el.tagName==='INPUT'||el.tagName==='TEXTAREA')){
+          el.value = data.payload.value;
+          el.dispatchEvent(new Event('input', {bubbles:true}));
+        }
+      }else if(data.type === 'video'){
+        document.querySelectorAll('video,audio').forEach(v=>{
+          if(data.payload.action==='play') v.play();
+          else if(data.payload.action==='pause') v.pause();
+          else if(data.payload.action==='seek') v.currentTime=data.payload.time;
+          else if(data.payload.action==='volume') v.volume=data.payload.volume;
+        });
+      }
+    }catch(e){}
+  });
+
+  let st;
+  window.addEventListener('scroll', ()=>{
+    clearTimeout(st);
+    st = setTimeout(()=>send('scroll',{x:scrollX,y:scrollY}), 50);
+  }, {passive:true});
+  document.addEventListener('click', e=>send('click',{x:e.clientX,y:e.clientY}), true);
+  document.addEventListener('input', e=>{
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')
+      send('input',{value:e.target.value});
+  });
+  document.addEventListener('play', e=>{
+    if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO')
+      send('video',{action:'play'});
+  }, true);
+  document.addEventListener('pause', e=>{
+    if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO')
+      send('video',{action:'pause'});
+  }, true);
+  document.addEventListener('volumechange', e=>{
+    if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO')
+      send('video',{action:'volume',volume:e.target.volume});
+  }, true);
+  document.addEventListener('seeked', e=>{
+    if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO')
+      send('video',{action:'seek',time:e.target.currentTime});
+  }, true);
+})();
+<\/script>
+`;
+        // Внедряем перед </body> или </head>
+        let injected = body;
+        if (body.includes('</head>')) {
+          injected = body.replace('</head>', syncScript + '</head>');
+        } else if (body.includes('</body>')) {
+          injected = body.replace('</body>', syncScript + '</body>');
+        } else {
+          injected = body + syncScript;
+        }
+
+        // Меняем ссылки на прокси
+        injected = injected.replace(/href="\//g, `href="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
+        injected = injected.replace(/src="\//g, `src="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
+        injected = injected.replace(/action="\//g, `action="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
+
+        res.setHeader('content-type', 'text/html');
+        res.setHeader('content-length', Buffer.byteLength(injected));
+        res.end(injected);
+      });
+    } else {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    }
+  });
+
+  proxyReq.on('error', (err) => {
+    res.status(500).send('Proxy error: ' + err.message);
+  });
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    req.pipe(proxyReq);
+  } else {
+    proxyReq.end();
+  }
+});
+
 // ========== WebSocket ==========
 io.on('connection', (socket) => {
   socket.on('register-socket', ({ login }) => socket.join(`user-${login}`));
@@ -82,6 +228,8 @@ io.on('connection', (socket) => {
     const session = companySessions.get(companyId) || { url: 'https://google.com' };
     socket.emit('sync-state', session);
   });
+
+  socket.on('join-sync', ({ companyId }) => socket.join(`company-${companyId}`));
 
   socket.on('navigate', ({ companyId, url }) => {
     companySessions.set(companyId, { url });
@@ -113,10 +261,8 @@ app.get('/', (req, res) => {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
     * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system, sans-serif; }
-    body { background:#000; height:100vh; overflow:hidden; touch-action:pan-y; }
+    body { background:#000; height:100vh; overflow:hidden; }
     #app { height:100vh; display:flex; flex-direction:column; background:#111; }
-
-    /* Экран входа */
     #auth-screen { display:flex; align-items:center; justify-content:center; height:100vh; background:#0a0a0a; padding:16px; }
     .auth-card { background:#1c1c1e; padding:32px 20px; border-radius:32px; width:100%; max-width:400px; }
     .auth-logo { font-size:32px; font-weight:700; color:#fff; text-align:center; margin-bottom:32px; }
@@ -126,30 +272,22 @@ app.get('/', (req, res) => {
     .auth-tab.active { background:#0a84ff; color:#fff; }
     .auth-input { width:100%; padding:18px 20px; margin-bottom:12px; background:#0a0a0a; border:1px solid #333; border-radius:20px; color:#fff; font-size:17px; outline:none; }
     .auth-btn { width:100%; padding:18px; background:#0a84ff; color:#fff; border:none; border-radius:20px; font-size:18px; font-weight:700; margin-top:16px; }
-
-    /* Главный экран */
     #main-screen { display:none; flex-direction:column; height:100vh; background:#000; }
-
     .top-bar { display:flex; align-items:center; padding:8px; background:#1c1c1e; gap:6px; }
     .nav-btn { width:44px; height:44px; border-radius:30px; background:#2c2c2e; border:none; color:#0a84ff; font-size:18px; }
     .url-box { flex:1; display:flex; align-items:center; background:#1c1c1e; border-radius:30px; padding:0 6px 0 16px; border:1px solid #333; }
     .url-box input { flex:1; background:transparent; border:none; color:#fff; font-size:15px; padding:12px 0; outline:none; }
     .url-box button { background:#0a84ff; border:none; color:#fff; padding:8px 16px; border-radius:26px; font-size:15px; font-weight:600; }
     .user-btn { background:#2c2c2e; border:none; color:#fff; padding:0 14px; height:44px; border-radius:30px; font-size:14px; display:flex; align-items:center; gap:6px; }
-
-    .companies-row { padding:10px; background:#0a0a0a; display:flex; gap:8px; overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch; }
+    .companies-row { padding:10px; background:#0a0a0a; display:flex; gap:8px; overflow-x:auto; white-space:nowrap; }
     .companies-row::-webkit-scrollbar { display:none; }
     .chip { background:#1c1c1e; padding:10px 18px; border-radius:40px; color:#ccc; font-size:15px; display:inline-flex; align-items:center; gap:6px; border:1px solid #333; }
     .chip.active { background:#0a84ff; color:#fff; border-color:#0a84ff; }
     .chip.create { background:transparent; border:1px dashed #0a84ff; color:#0a84ff; }
-
     .add-panel { display:flex; gap:8px; padding:10px; background:#0a0a0a; align-items:center; }
     .add-panel input { flex:1; background:#1c1c1e; border:1px solid #333; border-radius:30px; padding:14px 18px; color:#fff; font-size:15px; outline:none; }
     .add-panel button { width:50px; height:50px; border-radius:30px; background:#0a84ff; border:none; color:#fff; font-size:20px; }
-
     iframe { flex:1; width:100%; border:none; background:#fff; }
-
-    /* Чат */
     #chat-container { position:fixed; bottom:90px; right:12px; width:calc(100vw - 24px); max-width:340px; z-index:9999; touch-action:none; }
     .chat-window { background:#1c1c1e; border-radius:24px; border:1px solid #444; overflow:hidden; display:none; flex-direction:column; height:480px; max-height:60vh; }
     .chat-window.open { display:flex; }
@@ -166,7 +304,6 @@ app.get('/', (req, res) => {
     .chat-footer button { width:50px; height:50px; border-radius:40px; background:#2c2c2e; border:none; color:#0a84ff; font-size:22px; }
     .chat-footer button.rec { background:#ff3b30; color:#fff; }
     .chat-toggle { position:fixed; bottom:20px; right:20px; width:65px; height:65px; border-radius:45px; background:#0a84ff; border:none; color:#fff; font-size:30px; box-shadow:0 4px 15px rgba(10,132,255,0.4); z-index:10000; }
-
     .modal { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:none; align-items:center; justify-content:center; z-index:20000; padding:20px; }
     .modal-card { background:#1c1c1e; padding:28px 24px; border-radius:36px; width:100%; }
     .modal-card h3 { color:#fff; font-size:22px; margin-bottom:24px; }
@@ -175,7 +312,6 @@ app.get('/', (req, res) => {
     .modal-actions button { flex:1; padding:16px; border-radius:30px; border:none; font-size:17px; font-weight:600; }
     .modal-cancel { background:#3a3a3c; color:#fff; }
     .modal-ok { background:#0a84ff; color:#fff; }
-
     .toast { position:fixed; bottom:90px; left:20px; right:20px; background:#ff3b30; color:#fff; padding:14px; border-radius:40px; text-align:center; font-size:15px; display:none; z-index:15000; }
   </style>
 </head>
@@ -223,7 +359,7 @@ app.get('/', (req, res) => {
       <button id="add-member-btn"><i class="fas fa-user-plus"></i></button>
     </div>
 
-    <iframe id="browser-iframe" allow="camera; microphone; fullscreen"></iframe>
+    <iframe id="browser-iframe" allow="camera; microphone; fullscreen; autoplay"></iframe>
 
     <div id="chat-container">
       <div class="chat-window" id="chat-window">
@@ -295,7 +431,6 @@ app.get('/', (req, res) => {
   });
   window.addEventListener('touchend', ()=>drag=false);
 
-  // Вкладки
   document.querySelectorAll('.auth-tab').forEach(t=>{
     t.addEventListener('click', ()=>{
       document.querySelectorAll('.auth-tab').forEach(x=>x.classList.remove('active'));
@@ -363,12 +498,13 @@ app.get('/', (req, res) => {
   }
 
   socket.on('sync-state', s=>{ if(s&&s.url){ urlInp.value=s.url; navTo(s.url); } });
-  socket.on('navigate', d=>{ urlInp.value=d.url; iframe.src=d.url; });
+  socket.on('navigate', d=>{ urlInp.value=d.url; navTo(d.url); });
 
   function navTo(url){
     if(!url.includes('://')) url='https://'+url;
     urlInp.value=url;
-    iframe.src=url;
+    const proxyUrl = '/proxy?url=' + encodeURIComponent(url) + '&companyId=' + (currentCompany||'');
+    iframe.src = proxyUrl;
     if(currentCompany) socket.emit('navigate',{companyId:currentCompany, url});
   }
 
@@ -397,7 +533,6 @@ app.get('/', (req, res) => {
 
   socket.on('member-added', ()=> loadCompanies());
 
-  // Чат
   document.getElementById('chat-toggle').onclick = ()=> chatWin.classList.toggle('open');
   document.getElementById('close-chat').onclick = ()=> chatWin.classList.remove('open');
 
@@ -465,17 +600,7 @@ app.get('/', (req, res) => {
   };
   socket.on('voice-message', d=>{ if(d.from!==currentUser) addVoice(d.from, d.audioData, false); });
 
-  iframe.src = 'https://google.com';
-
-  // Синхронизация действий внутри iframe
-  window.addEventListener('message', e=>{
-    if(e.data && e.data.type && currentCompany){
-      socket.emit('browser-action', {companyId:currentCompany, type:e.data.type, payload:e.data.payload});
-    }
-  });
-  socket.on('browser-action', data=>{
-    iframe.contentWindow.postMessage(data, '*');
-  });
+  navTo('google.com');
 </script>
 </body>
 </html>
