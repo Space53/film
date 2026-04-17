@@ -1,1 +1,840 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Google • Company Sync Browser</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+    }
 
+    body {
+      background: #202124;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ЭКРАН АВТОРИЗАЦИИ */
+    #auth-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #202124;
+    }
+
+    .auth-card {
+      background: #303134;
+      padding: 40px 30px;
+      border-radius: 28px;
+      width: 400px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      border: 1px solid #5f6368;
+    }
+
+    .auth-logo {
+      font-size: 48px;
+      font-weight: 400;
+      color: #e8eaed;
+      margin-bottom: 10px;
+    }
+    .auth-logo span { color: #8ab4f8; }
+    .auth-logo i { font-size: 40px; margin-right: 8px; }
+
+    .auth-tabs {
+      display: flex;
+      margin-bottom: 30px;
+      border-bottom: 1px solid #5f6368;
+    }
+    .auth-tab {
+      flex: 1;
+      padding: 12px;
+      color: #9aa0a6;
+      cursor: pointer;
+      font-weight: 500;
+      transition: 0.2s;
+      border-bottom: 3px solid transparent;
+    }
+    .auth-tab.active {
+      color: #8ab4f8;
+      border-bottom-color: #8ab4f8;
+    }
+
+    .auth-input {
+      width: 100%;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      background: #202124;
+      border: 1px solid #5f6368;
+      border-radius: 30px;
+      color: #e8eaed;
+      font-size: 16px;
+      outline: none;
+      transition: 0.2s;
+    }
+    .auth-input:focus { border-color: #8ab4f8; background: #303134; }
+
+    .auth-btn {
+      width: 100%;
+      padding: 14px;
+      background: #8ab4f8;
+      color: #202124;
+      border: none;
+      border-radius: 30px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: 0.2s;
+    }
+    .auth-btn:hover { background: #aecbfa; }
+
+    /* ОСНОВНОЙ ЭКРАН */
+    #main-screen {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      background: #202124;
+    }
+
+    /* Верхняя панель Google */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      background: #202124;
+      border-bottom: 1px solid #3c4043;
+    }
+
+    .nav-controls {
+      display: flex;
+      gap: 8px;
+      margin-right: 20px;
+    }
+    .nav-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e8eaed;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .nav-btn:hover { background: #3c4043; }
+
+    .address-bar {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      background: #303134;
+      border-radius: 28px;
+      padding: 4px 8px 4px 18px;
+      border: 1px solid #5f6368;
+    }
+    .address-bar i {
+      color: #9aa0a6;
+      margin-right: 10px;
+    }
+    .address-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #e8eaed;
+      font-size: 15px;
+      outline: none;
+      padding: 10px 0;
+    }
+    .address-bar button {
+      background: transparent;
+      border: none;
+      color: #8ab4f8;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .user-area {
+      display: flex;
+      align-items: center;
+      margin-left: 20px;
+      gap: 15px;
+    }
+    .company-selector {
+      background: #303134;
+      color: #e8eaed;
+      border: 1px solid #5f6368;
+      border-radius: 20px;
+      padding: 8px 15px;
+      font-size: 14px;
+      cursor: pointer;
+      outline: none;
+    }
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #e8eaed;
+      background: #303134;
+      padding: 6px 15px;
+      border-radius: 30px;
+      border: 1px solid #5f6368;
+      cursor: pointer;
+    }
+
+    /* Панель компаний */
+    .companies-panel {
+      padding: 12px 16px;
+      background: #303134;
+      border-bottom: 1px solid #3c4043;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .company-tag {
+      background: #202124;
+      color: #e8eaed;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #5f6368;
+      cursor: pointer;
+    }
+    .company-tag.active {
+      background: #8ab4f8;
+      color: #202124;
+      border-color: #8ab4f8;
+    }
+    .create-company-btn {
+      background: transparent;
+      border: 1px dashed #5f6368;
+      color: #8ab4f8;
+      padding: 6px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .add-member-area {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .add-member-input {
+      background: #202124;
+      border: 1px solid #5f6368;
+      border-radius: 20px;
+      padding: 6px 14px;
+      color: #e8eaed;
+      outline: none;
+    }
+
+    /* iframe браузера */
+    .browser-frame {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #fff;
+    }
+
+    /* ПЛАВАЮЩИЙ ЧАТ */
+    .chat-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 360px;
+      z-index: 1000;
+      transition: 0.3s;
+    }
+
+    .chat-window {
+      background: #303134;
+      border-radius: 20px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+      border: 1px solid #5f6368;
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      height: 500px;
+    }
+
+    .chat-window.open {
+      display: flex;
+    }
+
+    .chat-header {
+      padding: 15px;
+      background: #202124;
+      color: #e8eaed;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #3c4043;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      word-break: break-word;
+    }
+    .message.own {
+      align-self: flex-end;
+      background: #8ab4f8;
+      color: #202124;
+    }
+    .message.other {
+      align-self: flex-start;
+      background: #3c4043;
+      color: #e8eaed;
+    }
+    .message .sender {
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .voice-message {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .play-voice-btn {
+      background: #5f6368;
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .chat-input-area {
+      padding: 12px;
+      background: #202124;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .chat-input {
+      flex: 1;
+      background: #303134;
+      border: 1px solid #5f6368;
+      border-radius: 25px;
+      padding: 12px 18px;
+      color: #e8eaed;
+      outline: none;
+    }
+    .chat-btn {
+      background: #303134;
+      border: none;
+      color: #8ab4f8;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .recording {
+      background: #ea4335;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+
+    .chat-toggle-btn {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 60px;
+      height: 60px;
+      border-radius: 30px;
+      background: #8ab4f8;
+      color: #202124;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Модалки */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    .modal {
+      background: #303134;
+      padding: 25px;
+      border-radius: 20px;
+      width: 350px;
+      color: #e8eaed;
+    }
+    .modal input {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      background: #202124;
+      border: 1px solid #5f6368;
+      border-radius: 10px;
+      color: #e8eaed;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .error-toast {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background: #ea4335;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 10px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- ЭКРАН АВТОРИЗАЦИИ -->
+  <div id="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <i class="fab fa-google"></i> <span>Company</span> Browser
+      </div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" data-tab="login">Вход</div>
+        <div class="auth-tab" data-tab="register">Регистрация</div>
+      </div>
+      <div id="login-form">
+        <input type="text" id="login-username" class="auth-input" placeholder="Логин">
+        <input type="password" id="login-password" class="auth-input" placeholder="Пароль">
+        <button class="auth-btn" id="login-btn">Войти</button>
+      </div>
+      <div id="register-form" style="display:none">
+        <input type="text" id="reg-username" class="auth-input" placeholder="Придумайте логин">
+        <input type="password" id="reg-password" class="auth-input" placeholder="Пароль">
+        <button class="auth-btn" id="register-btn">Зарегистрироваться</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ОСНОВНОЙ ЭКРАН -->
+  <div id="main-screen">
+    <!-- Верхняя панель -->
+    <div class="top-bar">
+      <div class="nav-controls">
+        <div class="nav-btn" id="back-btn"><i class="fas fa-arrow-left"></i></div>
+        <div class="nav-btn" id="forward-btn"><i class="fas fa-arrow-right"></i></div>
+        <div class="nav-btn" id="refresh-btn"><i class="fas fa-redo-alt"></i></div>
+      </div>
+      <div class="address-bar">
+        <i class="fas fa-lock"></i>
+        <input type="text" id="url-input" placeholder="Введите URL или поисковый запрос">
+        <button id="go-btn">Перейти</button>
+      </div>
+      <div class="user-area">
+        <select id="company-select" class="company-selector">
+          <option value="">-- Выберите компанию --</option>
+        </select>
+        <div class="user-badge" id="logout-btn">
+          <i class="fas fa-user-circle"></i>
+          <span id="current-user-display"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Панель компаний -->
+    <div class="companies-panel" id="companies-panel">
+      <button class="create-company-btn" id="create-company-btn"><i class="fas fa-plus"></i> Создать компанию</button>
+      <div id="company-tags"></div>
+      <div class="add-member-area" id="add-member-area" style="display:none">
+        <input type="text" id="member-login-input" class="add-member-input" placeholder="Логин пользователя">
+        <button class="nav-btn" id="add-member-btn"><i class="fas fa-user-plus"></i></button>
+      </div>
+    </div>
+
+    <!-- Браузер (iframe) -->
+    <iframe id="browser-iframe" class="browser-frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"></iframe>
+
+    <!-- Плавающий чат -->
+    <div class="chat-container">
+      <div class="chat-window" id="chat-window">
+        <div class="chat-header">
+          <span><i class="fas fa-comments"></i> Чат компании</span>
+          <i class="fas fa-times" id="close-chat" style="cursor:pointer"></i>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <input type="text" id="chat-input" class="chat-input" placeholder="Сообщение...">
+          <button class="chat-btn" id="voice-btn"><i class="fas fa-microphone"></i></button>
+          <button class="chat-btn" id="send-btn"><i class="fas fa-paper-plane"></i></button>
+        </div>
+      </div>
+      <button class="chat-toggle-btn" id="chat-toggle"><i class="fas fa-comment-dots"></i></button>
+    </div>
+  </div>
+
+  <!-- Модалка создания компании -->
+  <div class="modal-overlay" id="create-company-modal">
+    <div class="modal">
+      <h3>Создать компанию</h3>
+      <input type="text" id="new-company-name" placeholder="Название компании">
+      <div class="modal-actions">
+        <button class="auth-btn" style="width:auto; padding:8px 20px;" id="modal-cancel">Отмена</button>
+        <button class="auth-btn" style="width:auto; padding:8px 20px;" id="modal-create">Создать</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="error-toast" class="error-toast"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  (function(){
+    // ---------- СОСТОЯНИЕ ----------
+    let socket = io();
+    let currentUser = null;
+    let currentCompany = null;
+    let companiesList = [];
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    // DOM элементы
+    const authScreen = document.getElementById('auth-screen');
+    const mainScreen = document.getElementById('main-screen');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const loginBtn = document.getElementById('login-btn');
+    const registerBtn = document.getElementById('register-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const currentUserDisplay = document.getElementById('current-user-display');
+    const companySelect = document.getElementById('company-select');
+    const companyTags = document.getElementById('company-tags');
+    const urlInput = document.getElementById('url-input');
+    const goBtn = document.getElementById('go-btn');
+    const browserIframe = document.getElementById('browser-iframe');
+    const chatWindow = document.getElementById('chat-window');
+    const chatToggle = document.getElementById('chat-toggle');
+    const closeChat = document.getElementById('close-chat');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const voiceBtn = document.getElementById('voice-btn');
+    const addMemberArea = document.getElementById('add-member-area');
+    const memberLoginInput = document.getElementById('member-login-input');
+    const addMemberBtn = document.getElementById('add-member-btn');
+    const createCompanyBtn = document.getElementById('create-company-btn');
+    const createCompanyModal = document.getElementById('create-company-modal');
+    const newCompanyName = document.getElementById('new-company-name');
+    const modalCancel = document.getElementById('modal-cancel');
+    const modalCreate = document.getElementById('modal-create');
+    const errorToast = document.getElementById('error-toast');
+
+    // Вкладки
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        if (tab.dataset.tab === 'login') { loginForm.style.display = 'block'; registerForm.style.display = 'none'; }
+        else { loginForm.style.display = 'none'; registerForm.style.display = 'block'; }
+      });
+    });
+
+    // Вспомогательные функции
+    function showError(msg) {
+      errorToast.style.display = 'block';
+      errorToast.textContent = msg;
+      setTimeout(() => errorToast.style.display = 'none', 3000);
+    }
+
+    function showMainScreen() {
+      authScreen.style.display = 'none';
+      mainScreen.style.display = 'flex';
+      currentUserDisplay.textContent = currentUser;
+    }
+
+    // API запросы
+    async function apiCall(url, method, body) {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      return res.json();
+    }
+
+    // Регистрация / вход
+    loginBtn.addEventListener('click', async () => {
+      const login = document.getElementById('login-username').value.trim();
+      const pass = document.getElementById('login-password').value;
+      if (!login || !pass) return showError('Заполните поля');
+      const res = await apiCall('/api/login', 'POST', { login, password: pass });
+      if (res.success) {
+        currentUser = login;
+        socket.emit('register-socket', { login });
+        await loadCompanies();
+        showMainScreen();
+      } else showError(res.error || 'Ошибка входа');
+    });
+
+    registerBtn.addEventListener('click', async () => {
+      const login = document.getElementById('reg-username').value.trim();
+      const pass = document.getElementById('reg-password').value;
+      if (!login || !pass) return showError('Заполните поля');
+      const res = await apiCall('/api/register', 'POST', { login, password: pass });
+      if (res.success) {
+        document.querySelector('[data-tab="login"]').click();
+        showError('Регистрация успешна! Войдите.');
+      } else showError(res.error || 'Ошибка регистрации');
+    });
+
+    logoutBtn.addEventListener('click', () => {
+      currentUser = null;
+      currentCompany = null;
+      authScreen.style.display = 'flex';
+      mainScreen.style.display = 'none';
+    });
+
+    // Компании
+    async function loadCompanies() {
+      if (!currentUser) return;
+      const list = await apiCall(`/api/companies/${currentUser}`, 'GET');
+      companiesList = list;
+      renderCompanySelect();
+      renderCompanyTags();
+    }
+
+    function renderCompanySelect() {
+      companySelect.innerHTML = '<option value="">-- Выберите компанию --</option>';
+      companiesList.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.owner})`;
+        companySelect.appendChild(opt);
+      });
+    }
+
+    function renderCompanyTags() {
+      companyTags.innerHTML = '';
+      companiesList.forEach(c => {
+        const tag = document.createElement('span');
+        tag.className = 'company-tag' + (currentCompany === c.id ? ' active' : '');
+        tag.innerHTML = `<i class="fas fa-building"></i> ${c.name}`;
+        tag.addEventListener('click', () => switchCompany(c.id));
+        companyTags.appendChild(tag);
+      });
+    }
+
+    function switchCompany(companyId) {
+      const company = companiesList.find(c => c.id === companyId);
+      if (!company) return;
+      currentCompany = companyId;
+      socket.emit('join-company', { companyId, login: currentUser });
+      renderCompanyTags();
+      addMemberArea.style.display = company.owner === currentUser ? 'flex' : 'none';
+      // Загружаем состояние
+      chatMessages.innerHTML = '';
+    }
+
+    socket.on('joined', (data) => {
+      console.log('Joined company', data);
+      // Навигация по сохранённому URL
+    });
+
+    socket.on('sync-state', (session) => {
+      if (session && session.url) {
+        urlInput.value = session.url;
+        navigateTo(session.url);
+      }
+    });
+
+    socket.on('navigate', ({ url }) => {
+      urlInput.value = url;
+      browserIframe.src = `/sync-proxy?url=${encodeURIComponent(url)}&companyId=${currentCompany}`;
+    });
+
+    function navigateTo(url) {
+      if (!url.includes('://')) url = 'https://' + url;
+      urlInput.value = url;
+      browserIframe.src = `/sync-proxy?url=${encodeURIComponent(url)}&companyId=${currentCompany}`;
+      if (currentCompany) {
+        socket.emit('navigate', { companyId: currentCompany, url });
+      }
+    }
+
+    goBtn.addEventListener('click', () => navigateTo(urlInput.value));
+    urlInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') navigateTo(urlInput.value); });
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+      browserIframe.src = browserIframe.src;
+    });
+
+    companySelect.addEventListener('change', (e) => {
+      if (e.target.value) switchCompany(e.target.value);
+    });
+
+    // Создание компании
+    createCompanyBtn.addEventListener('click', () => createCompanyModal.style.display = 'flex');
+    modalCancel.addEventListener('click', () => createCompanyModal.style.display = 'none');
+    modalCreate.addEventListener('click', async () => {
+      const name = newCompanyName.value.trim();
+      if (!name) return showError('Введите название');
+      const res = await apiCall('/api/companies', 'POST', { owner: currentUser, name });
+      if (res.success) {
+        createCompanyModal.style.display = 'none';
+        newCompanyName.value = '';
+        await loadCompanies();
+      } else showError(res.error);
+    });
+
+    // Добавление участника
+    addMemberBtn.addEventListener('click', async () => {
+      const login = memberLoginInput.value.trim();
+      if (!login) return;
+      const res = await apiCall(`/api/companies/${currentCompany}/add-member`, 'POST', {
+        login, addedBy: currentUser
+      });
+      if (res.success) {
+        memberLoginInput.value = '';
+        await loadCompanies();
+        showError('Участник добавлен');
+      } else showError(res.error);
+    });
+
+    socket.on('member-added', ({ login }) => {
+      showError(`Пользователь ${login} добавлен в компанию`);
+      loadCompanies();
+    });
+
+    // Чат
+    chatToggle.addEventListener('click', () => {
+      chatWindow.classList.toggle('open');
+    });
+    closeChat.addEventListener('click', () => chatWindow.classList.remove('open'));
+
+    function addChatMessage(from, text, isOwn) {
+      const div = document.createElement('div');
+      div.className = `message ${isOwn ? 'own' : 'other'}`;
+      div.innerHTML = `<div class="sender">${from}</div><div>${text}</div>`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addVoiceMessage(from, audioData, isOwn) {
+      const div = document.createElement('div');
+      div.className = `message ${isOwn ? 'own' : 'other'}`;
+      div.innerHTML = `<div class="sender">${from}</div>`;
+      const audioDiv = document.createElement('div');
+      audioDiv.className = 'voice-message';
+      const btn = document.createElement('button');
+      btn.className = 'play-voice-btn';
+      btn.innerHTML = '<i class="fas fa-play"></i>';
+      const audio = new Audio(audioData);
+      btn.addEventListener('click', () => audio.play());
+      audioDiv.appendChild(btn);
+      audioDiv.appendChild(document.createTextNode('Голосовое сообщение'));
+      div.appendChild(audioDiv);
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    sendBtn.addEventListener('click', sendTextMessage);
+    chatInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendTextMessage(); });
+
+    function sendTextMessage() {
+      const text = chatInput.value.trim();
+      if (!text || !currentCompany) return;
+      socket.emit('chat-message', { companyId: currentCompany, from: currentUser, text });
+      addChatMessage(currentUser, text, true);
+      chatInput.value = '';
+    }
+
+    socket.on('chat-message', ({ from, text }) => {
+      if (from !== currentUser) addChatMessage(from, text, false);
+    });
+
+    // Голосовые сообщения
+    voiceBtn.addEventListener('click', async () => {
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+          mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+          mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              socket.emit('voice-message', { companyId: currentCompany, from: currentUser, audioData: reader.result });
+              addVoiceMessage(currentUser, reader.result, true);
+            };
+            reader.readAsDataURL(audioBlob);
+            stream.getTracks().forEach(t => t.stop());
+          };
+          mediaRecorder.start();
+          voiceBtn.classList.add('recording');
+          isRecording = true;
+        } catch(e) { showError('Нет доступа к микрофону'); }
+      } else {
+        mediaRecorder.stop();
+        voiceBtn.classList.remove('recording');
+        isRecording = false;
+      }
+    });
+
+    socket.on('voice-message', ({ from, audioData }) => {
+      if (from !== currentUser) addVoiceMessage(from, audioData, false);
+    });
+
+    // Синхронизация действий из iframe (через postMessage не требуется, т.к. прокси инжектит socket)
+    // Дополнительно можно слушать события от iframe, но всё уже внутри.
+
+    // Начальная загрузка
+    browserIframe.src = '/sync-proxy?url=https://google.com&companyId=demo';
+    // При выборе компании перезагружаем iframe с companyId
+    const origSwitch = switchCompany;
+    switchCompany = function(id) {
+      origSwitch(id);
+      const url = urlInput.value || 'https://google.com';
+      browserIframe.src = `/sync-proxy?url=${encodeURIComponent(url)}&companyId=${id}`;
+    };
+  })();
+</script>
+</body>
+  </html>
