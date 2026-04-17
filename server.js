@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
@@ -13,13 +14,22 @@ const io = socketIo(server, {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static('public'));
+app.use(express.json({ limit: '50mb' }));
 
-// Хранилища
+// Хранилища в памяти
 const users = new Map();
 const companies = new Map();
 const companySessions = new Map();
+
+// ========== ОТДАЁМ HTML ==========
+app.get('/', (req, res) => {
+  const htmlPath = path.join(__dirname, 'index.html');
+  if (fs.existsSync(htmlPath)) {
+    res.sendFile(htmlPath);
+  } else {
+    res.status(404).send('index.html not found. Create it next to server.js');
+  }
+});
 
 // ========== API ==========
 app.post('/api/register', (req, res) => {
@@ -73,167 +83,80 @@ app.post('/api/companies/:id/add-member', (req, res) => {
   res.json({ success: true, members: Array.from(company.members) });
 });
 
-// ========== ПРОКСИ С ИНЖЕКТОМ СКРИПТА СИНХРОНИЗАЦИИ ==========
+// ========== ПРОКСИ (не ломает файлы) ==========
 const syncScript = `
+<script src="/socket.io/socket.io.js"></script>
 <script>
 (function() {
   if (window.__syncInjected) return;
   window.__syncInjected = true;
-
   const socket = io();
   const companyId = window.__COMPANY_ID__;
-  const url = window.__CURRENT_URL__;
-
   socket.emit('join-sync', { companyId });
 
-  // Отправка событий родителю
   function sendAction(type, payload) {
     socket.emit('browser-action', { companyId, type, payload });
   }
 
-  // Слушаем входящие действия от других
   socket.on('browser-action', (data) => {
-    if (data.type === 'scroll') {
-      window.scrollTo({ left: data.payload.x, top: data.payload.y, behavior: 'auto' });
-    } else if (data.type === 'click') {
-      const el = document.elementFromPoint(data.payload.x, data.payload.y);
-      if (el) {
-        el.focus();
-        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-          // не симулируем клик по полям ввода, чтобы не мешать вводу
-        } else {
-          el.click();
+    try {
+      if (data.type === 'scroll') window.scrollTo(data.payload.x, data.payload.y);
+      else if (data.type === 'click') {
+        const el = document.elementFromPoint(data.payload.x, data.payload.y);
+        if (el) { el.focus(); el.click(); }
+      } else if (data.type === 'input') {
+        const el = document.activeElement;
+        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+          el.value = data.payload.value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } else if (data.type === 'video') {
+        const vids = document.querySelectorAll('video, audio');
+        vids.forEach(v => {
+          if (data.payload.action === 'play') v.play();
+          else if (data.payload.action === 'pause') v.pause();
+          else if (data.payload.action === 'seek') v.currentTime = data.payload.time;
+          else if (data.payload.action === 'volume') v.volume = data.payload.volume;
+          else if (data.payload.action === 'muted') v.muted = data.payload.muted;
+        });
+        // YouTube iframe
+        if (window.YT && window.YT.Player) {
+          const players = YT.Player.getPlayers();
+          for (let id in players) {
+            const p = players[id];
+            if (data.payload.action === 'play') p.playVideo();
+            else if (data.payload.action === 'pause') p.pauseVideo();
+            else if (data.payload.action === 'seek') p.seekTo(data.payload.time);
+            else if (data.payload.action === 'volume') p.setVolume(data.payload.volume * 100);
+          }
         }
       }
-    } else if (data.type === 'input') {
-      const el = document.activeElement;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
-        el.value = data.payload.value;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    } else if (data.type === 'change') {
-      const el = document.querySelector(data.payload.selector);
-      if (el) {
-        if (el.type === 'checkbox' || el.type === 'radio') el.checked = data.payload.checked;
-        else el.value = data.payload.value;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    } else if (data.type === 'video') {
-      const videos = document.querySelectorAll('video');
-      videos.forEach(v => {
-        if (data.payload.action === 'play') v.play();
-        else if (data.payload.action === 'pause') v.pause();
-        else if (data.payload.action === 'seek') v.currentTime = data.payload.time;
-        else if (data.payload.action === 'volume') v.volume = data.payload.volume;
-        else if (data.payload.action === 'muted') v.muted = data.payload.muted;
-      });
-      // YouTube API
-      if (window.YT && window.YT.Player) {
-        const players = YT.Player.getPlayers();
-        for (let id in players) {
-          const p = players[id];
-          if (data.payload.action === 'play') p.playVideo();
-          else if (data.payload.action === 'pause') p.pauseVideo();
-          else if (data.payload.action === 'seek') p.seekTo(data.payload.time);
-          else if (data.payload.action === 'volume') p.setVolume(data.payload.volume * 100);
-          else if (data.payload.action === 'muted') p.mute();
-        }
-      }
-    }
+    } catch(e) { console.log('Sync error:', e); }
   });
 
-  // Перехват событий
+  let scrollTimer;
   window.addEventListener('scroll', () => {
-    sendAction('scroll', { x: window.scrollX, y: window.scrollY });
-  }, { passive: true });
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => sendAction('scroll', {x:scrollX, y:scrollY}), 50);
+  }, {passive:true});
 
-  document.addEventListener('click', (e) => {
-    sendAction('click', { x: e.clientX, y: e.clientY });
-  }, true);
-
-  document.addEventListener('input', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-      sendAction('input', { value: e.target.value });
-    }
+  document.addEventListener('click', e => sendAction('click', {x:e.clientX, y:e.clientY}), true);
+  document.addEventListener('input', e => {
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') sendAction('input',{value:e.target.value});
   });
 
-  document.addEventListener('change', (e) => {
-    const el = e.target;
-    let selector = el.id ? '#' + el.id : el.className ? '.' + el.className.split(' ')[0] : el.tagName;
-    sendAction('change', { 
-      selector: selector, 
-      value: el.value, 
-      checked: el.checked 
-    });
-  });
-
-  // Медиа-элементы
-  document.addEventListener('play', (e) => {
-    if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') {
-      sendAction('video', { action: 'play' });
-    }
-  }, true);
-  document.addEventListener('pause', (e) => {
-    if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') {
-      sendAction('video', { action: 'pause' });
-    }
-  }, true);
-  document.addEventListener('volumechange', (e) => {
-    const v = e.target;
-    sendAction('video', { action: 'volume', volume: v.volume, muted: v.muted });
-  }, true);
-  document.addEventListener('seeked', (e) => {
-    sendAction('video', { action: 'seek', time: e.target.currentTime });
-  }, true);
-
-  // YouTube iframe API перехват (упрощённо)
-  const originalPostMessage = window.postMessage;
-  window.postMessage = function(msg, targetOrigin, transfer) {
-    if (msg && typeof msg === 'string') {
-      try {
-        const data = JSON.parse(msg);
-        if (data.event === 'infoDelivery' && data.info && data.info.playerState !== undefined) {
-          // ловим состояние плеера
-        }
-      } catch(e) {}
-    }
-    return originalPostMessage.call(this, msg, targetOrigin, transfer);
-  };
-
-  console.log('Sync injected on', window.location.href);
+  document.addEventListener('play', e => { if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') sendAction('video',{action:'play'}); }, true);
+  document.addEventListener('pause', e => { if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') sendAction('video',{action:'pause'}); }, true);
+  document.addEventListener('volumechange', e => { if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') sendAction('video',{action:'volume',volume:e.target.volume,muted:e.target.muted}); }, true);
+  document.addEventListener('seeked', e => { if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') sendAction('video',{action:'seek',time:e.target.currentTime}); }, true);
 })();
 <\/script>
 `;
 
-// Middleware для инжекта скрипта в HTML ответы
-const injectScript = (proxyRes, req, res) => {
-  const contentType = proxyRes.headers['content-type'];
-  if (contentType && contentType.includes('text/html')) {
-    let body = '';
-    proxyRes.on('data', chunk => body += chunk);
-    proxyRes.on('end', () => {
-      // Внедряем скрипт перед </body> или </html>
-      const injected = body.replace('</body>', `
-        <script src="/socket.io/socket.io.js"></script>
-        <script>window.__COMPANY_ID__ = '${req.__companyId || ''}'; window.__CURRENT_URL__ = '${req.__targetUrl || ''}';</script>
-        ${syncScript}
-        </body>
-      `);
-      res.setHeader('content-length', Buffer.byteLength(injected));
-      res.end(injected);
-    });
-  } else {
-    proxyRes.pipe(res);
-  }
-};
-
-app.use('/sync-proxy', (req, res, next) => {
+app.use('/proxy', (req, res) => {
   const targetUrl = req.query.url;
+  const companyId = req.query.companyId || '';
   if (!targetUrl) return res.status(400).send('url required');
-  
-  // Сохраняем companyId из query для инжекта
-  req.__companyId = req.query.companyId || '';
-  req.__targetUrl = targetUrl;
 
   const proxy = createProxyMiddleware({
     target: targetUrl,
@@ -242,47 +165,54 @@ app.use('/sync-proxy', (req, res, next) => {
     followRedirects: true,
     selfHandleResponse: true,
     onProxyRes: (proxyRes, req, res) => {
+      const contentType = proxyRes.headers['content-type'] || '';
+      const isHtml = contentType.includes('text/html');
+
       delete proxyRes.headers['x-frame-options'];
       delete proxyRes.headers['content-security-policy'];
       proxyRes.headers['X-Frame-Options'] = 'ALLOWALL';
-      injectScript(proxyRes, req, res);
+
+      if (isHtml) {
+        let body = '';
+        proxyRes.on('data', chunk => body += chunk.toString());
+        proxyRes.on('end', () => {
+          const injected = body
+            .replace('<head>', `<head><script>window.__COMPANY_ID__='${companyId}';</script>`)
+            .replace('</head>', `${syncScript}</head>`);
+          res.setHeader('content-type', 'text/html');
+          res.end(injected);
+        });
+      } else {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      }
     },
+    onError: (err, req, res) => res.status(500).send('Proxy error'),
     pathRewrite: (path, req) => {
       const urlObj = new URL(targetUrl);
-      return urlObj.pathname + urlObj.search + path.replace(/^\/sync-proxy/, '');
-    },
-    router: () => targetUrl
+      return urlObj.pathname + urlObj.search + path.replace(/^\/proxy/, '');
+    }
   });
-  proxy(req, res, next);
+
+  proxy(req, res);
 });
 
 // ========== WebSocket ==========
 io.on('connection', (socket) => {
-  let currentUser = null;
-
-  socket.on('register-socket', ({ login }) => {
-    currentUser = login;
-    socket.join(`user-${login}`);
-  });
+  socket.on('register-socket', ({ login }) => socket.join(`user-${login}`));
 
   socket.on('join-company', ({ companyId, login }) => {
     const company = companies.get(companyId);
-    if (!company || !company.members.has(login)) {
-      socket.emit('error', 'Access denied');
-      return;
-    }
+    if (!company || !company.members.has(login)) return socket.emit('error', 'Access denied');
     socket.join(`company-${companyId}`);
     socket.emit('joined', { companyId, members: Array.from(company.members) });
     const session = companySessions.get(companyId) || { url: 'https://google.com' };
     socket.emit('sync-state', session);
   });
 
-  socket.on('join-sync', ({ companyId }) => {
-    socket.join(`company-${companyId}`);
-  });
+  socket.on('join-sync', ({ companyId }) => socket.join(`company-${companyId}`));
 
   socket.on('navigate', ({ companyId, url }) => {
-    if (!companyId) return;
     companySessions.set(companyId, { url });
     socket.to(`company-${companyId}`).emit('navigate', { url });
   });
@@ -301,4 +231,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server on ${PORT}`));
+server.listen(PORT, () => console.log(`http://localhost:${PORT}`));
