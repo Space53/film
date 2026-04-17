@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Company Sync Browser</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', 'Roboto', -apple-system, sans-serif;
+    }
+
+    body {
+      background: #1a1a1a;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ========== ЭКРАН АВТОРИЗАЦИИ ========== */
+    #auth-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      padding: 20px;
+    }
+
+    .auth-card {
+      background: #2d2d2d;
+      padding: 30px 25px;
+      border-radius: 28px;
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+      border: 1px solid #444;
+    }
+
+    .auth-logo {
+      font-size: 36px;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    .auth-logo i { 
+      background: linear-gradient(135deg, #4285f4, #34a853, #fbbc04, #ea4335);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-size: 40px;
+      margin-right: 8px;
+    }
+    .auth-logo span { 
+      background: linear-gradient(135deg, #8ab4f8, #81c995);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 600;
+    }
+
+    .auth-tabs {
+      display: flex;
+      margin-bottom: 25px;
+      background: #1a1a1a;
+      border-radius: 30px;
+      padding: 4px;
+    }
+    .auth-tab {
+      flex: 1;
+      padding: 12px;
+      color: #aaa;
+      cursor: pointer;
+      font-weight: 500;
+      border-radius: 26px;
+      transition: 0.2s;
+      font-size: 16px;
+    }
+    .auth-tab.active {
+      background: #4285f4;
+      color: white;
+    }
+
+    .auth-input {
+      width: 100%;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 30px;
+      color: white;
+      font-size: 16px;
+      outline: none;
+    }
+    .auth-input:focus { border-color: #4285f4; }
+
+    .auth-btn {
+      width: 100%;
+      padding: 16px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 30px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .auth-btn:active { background: #2b6ad9; }
+
+    /* ========== ОСНОВНОЙ ЭКРАН ========== */
+    #main-screen {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      background: #1a1a1a;
+    }
+
+    /* Верхняя панель */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: #2d2d2d;
+      border-bottom: 1px solid #444;
+      gap: 8px;
+    }
+
+    .nav-controls {
+      display: flex;
+      gap: 4px;
+    }
+    .nav-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ccc;
+      cursor: pointer;
+      background: #1a1a1a;
+      border: none;
+    }
+    .nav-btn:active { background: #444; }
+
+    .address-bar {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      background: #1a1a1a;
+      border-radius: 25px;
+      padding: 4px 6px 4px 14px;
+      border: 1px solid #555;
+    }
+    .address-bar i {
+      color: #888;
+      margin-right: 8px;
+      font-size: 14px;
+    }
+    .address-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 14px;
+      outline: none;
+      padding: 10px 0;
+    }
+    .address-bar button {
+      background: #4285f4;
+      border: none;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: white;
+      background: #1a1a1a;
+      padding: 8px 14px;
+      border-radius: 25px;
+      border: 1px solid #555;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    /* Панель компаний */
+    .companies-panel {
+      padding: 10px 12px;
+      background: #252525;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      border-bottom: 1px solid #444;
+    }
+    .company-tag {
+      background: #1a1a1a;
+      color: #ddd;
+      padding: 8px 16px;
+      border-radius: 25px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #555;
+      cursor: pointer;
+    }
+    .company-tag.active {
+      background: #4285f4;
+      color: white;
+      border-color: #4285f4;
+    }
+    .company-tag i { font-size: 12px; }
+
+    .create-company-btn {
+      background: transparent;
+      border: 1px dashed #666;
+      color: #8ab4f8;
+      padding: 8px 16px;
+      border-radius: 25px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .add-member-area {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .add-member-input {
+      background: #1a1a1a;
+      border: 1px solid #555;
+      border-radius: 25px;
+      padding: 8px 14px;
+      color: white;
+      outline: none;
+      font-size: 14px;
+      width: 140px;
+    }
+    .add-member-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #4285f4;
+      border: none;
+      color: white;
+      cursor: pointer;
+    }
+
+    /* iframe браузера */
+    .browser-frame {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #fff;
+    }
+
+    /* ========== ПЛАВАЮЩИЙ ПЕРЕТАСКИВАЕМЫЙ ЧАТ ========== */
+    #chat-container {
+      position: fixed;
+      bottom: 80px;
+      right: 16px;
+      width: 320px;
+      max-width: calc(100vw - 32px);
+      z-index: 9999;
+      touch-action: none;
+    }
+
+    .chat-window {
+      background: #2d2d2d;
+      border-radius: 20px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.7);
+      border: 1px solid #555;
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      height: 450px;
+      max-height: 70vh;
+    }
+
+    .chat-window.open { display: flex; }
+
+    .chat-header {
+      padding: 14px 16px;
+      background: #1a1a1a;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #444;
+      cursor: grab;
+      touch-action: none;
+    }
+    .chat-header:active { cursor: grabbing; }
+
+    .chat-messages {
+      flex: 1;
+      padding: 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #1a1a1a;
+    }
+
+    .message {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      word-break: break-word;
+      font-size: 14px;
+    }
+    .message.own {
+      align-self: flex-end;
+      background: #4285f4;
+      color: white;
+    }
+    .message.other {
+      align-self: flex-start;
+      background: #3d3d3d;
+      color: #eee;
+    }
+    .message .sender {
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 4px;
+      opacity: 0.8;
+    }
+
+    .voice-message {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .play-voice-btn {
+      background: #555;
+      border: none;
+      color: white;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .chat-input-area {
+      padding: 12px;
+      background: #252525;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chat-input {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #555;
+      border-radius: 25px;
+      padding: 12px 16px;
+      color: white;
+      outline: none;
+      font-size: 14px;
+    }
+    .chat-btn {
+      background: #3d3d3d;
+      border: none;
+      color: #8ab4f8;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .chat-btn.recording {
+      background: #ea4335;
+      color: white;
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    .chat-toggle-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 60px;
+      height: 60px;
+      border-radius: 35px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(66,133,244,0.4);
+      font-size: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      transition: 0.2s;
+    }
+    .chat-toggle-btn:active { transform: scale(0.95); }
+
+    /* Модалки */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20000;
+      padding: 20px;
+    }
+    .modal {
+      background: #2d2d2d;
+      padding: 25px;
+      border-radius: 24px;
+      width: 100%;
+      max-width: 350px;
+      color: white;
+    }
+    .modal h3 { margin-bottom: 20px; }
+    .modal input {
+      width: 100%;
+      padding: 16px;
+      margin-bottom: 20px;
+      background: #1a1a1a;
+      border: 1px solid #555;
+      border-radius: 30px;
+      color: white;
+      font-size: 16px;
+      outline: none;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+    .modal-actions button {
+      padding: 12px 24px;
+      border-radius: 30px;
+      border: none;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .modal-cancel { background: #444; color: white; }
+    .modal-ok { background: #4285f4; color: white; }
+
+    .error-toast {
+      position: fixed;
+      bottom: 90px;
+      left: 20px;
+      right: 20px;
+      background: #ea4335;
+      color: white;
+      padding: 14px 20px;
+      border-radius: 30px;
+      display: none;
+      z-index: 15000;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    /* Адаптация для телефона */
+    @media (max-width: 480px) {
+      .top-bar { padding: 6px 8px; }
+      .nav-btn { width: 36px; height: 36px; }
+      .address-bar input { font-size: 13px; }
+      .user-badge { padding: 6px 10px; font-size: 13px; }
+      .company-tag { padding: 6px 12px; font-size: 13px; }
+      #chat-container { width: 300px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- ЭКРАН АВТОРИЗАЦИИ -->
+  <div id="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <i class="fab fa-google"></i> <span>Sync</span>Browser
+      </div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" data-tab="login">Вход</div>
+        <div class="auth-tab" data-tab="register">Регистрация</div>
+      </div>
+      <div id="login-form">
+        <input type="text" id="login-username" class="auth-input" placeholder="Логин" autocomplete="off">
+        <input type="password" id="login-password" class="auth-input" placeholder="Пароль">
+        <button class="auth-btn" id="login-btn">Войти</button>
+      </div>
+      <div id="register-form" style="display:none">
+        <input type="text" id="reg-username" class="auth-input" placeholder="Придумайте логин" autocomplete="off">
+        <input type="password" id="reg-password" class="auth-input" placeholder="Пароль">
+        <button class="auth-btn" id="register-btn">Зарегистрироваться</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ОСНОВНОЙ ЭКРАН -->
+  <div id="main-screen">
+    <div class="top-bar">
+      <div class="nav-controls">
+        <button class="nav-btn" id="back-btn"><i class="fas fa-chevron-left"></i></button>
+        <button class="nav-btn" id="forward-btn"><i class="fas fa-chevron-right"></i></button>
+        <button class="nav-btn" id="refresh-btn"><i class="fas fa-redo-alt"></i></button>
+      </div>
+      <div class="address-bar">
+        <i class="fas fa-search"></i>
+        <input type="text" id="url-input" placeholder="URL или поиск Google" value="https://google.com">
+        <button id="go-btn">Go</button>
+      </div>
+      <div class="user-badge" id="logout-btn">
+        <i class="fas fa-user-circle"></i>
+        <span id="current-user-display"></span>
+      </div>
+    </div>
+
+    <div class="companies-panel">
+      <button class="create-company-btn" id="create-company-btn"><i class="fas fa-plus"></i> Компания</button>
+      <div id="company-tags" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+      <div class="add-member-area" id="add-member-area" style="display:none">
+        <input type="text" id="member-login-input" class="add-member-input" placeholder="Логин">
+        <button class="add-member-btn" id="add-member-btn"><i class="fas fa-user-plus"></i></button>
+      </div>
+    </div>
+
+    <iframe id="browser-iframe" class="browser-frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-orientation-lock"></iframe>
+
+    <!-- ЧАТ -->
+    <div id="chat-container">
+      <div class="chat-window" id="chat-window">
+        <div class="chat-header" id="chat-drag-handle">
+          <span><i class="fas fa-comment-dots"></i> Чат компании</span>
+          <i class="fas fa-times" id="close-chat" style="cursor:pointer; padding:5px;"></i>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <input type="text" id="chat-input" class="chat-input" placeholder="Сообщение...">
+          <button class="chat-btn" id="voice-btn"><i class="fas fa-microphone"></i></button>
+          <button class="chat-btn" id="send-btn"><i class="fas fa-paper-plane"></i></button>
+        </div>
+      </div>
+    </div>
+    <button class="chat-toggle-btn" id="chat-toggle"><i class="fas fa-comments"></i></button>
+  </div>
+
+  <!-- МОДАЛКА СОЗДАНИЯ КОМПАНИИ -->
+  <div class="modal-overlay" id="create-company-modal">
+    <div class="modal">
+      <h3>Новая компания</h3>
+      <input type="text" id="new-company-name" placeholder="Название">
+      <div class="modal-actions">
+        <button class="modal-cancel" id="modal-cancel">Отмена</button>
+        <button class="modal-ok" id="modal-create">Создать</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="error-toast" class="error-toast"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  (function(){
+    // ---------- СОСТОЯНИЕ ----------
+    const socket = io();
+    let currentUser = null;
+    let currentCompany = null;
+    let companiesList = [];
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    // DOM
+    const authScreen = document.getElementById('auth-screen');
+    const mainScreen = document.getElementById('main-screen');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const currentUserDisplay = document.getElementById('current-user-display');
+    const companyTags = document.getElementById('company-tags');
+    const urlInput = document.getElementById('url-input');
+    const browserIframe = document.getElementById('browser-iframe');
+    const chatWindow = document.getElementById('chat-window');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+    const addMemberArea = document.getElementById('add-member-area');
+    const memberLoginInput = document.getElementById('member-login-input');
+    const errorToast = document.getElementById('error-toast');
+
+    // Перетаскивание чата
+    const chatContainer = document.getElementById('chat-container');
+    const dragHandle = document.getElementById('chat-drag-handle');
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    function initDrag() {
+      dragHandle.addEventListener('mousedown', startDrag);
+      dragHandle.addEventListener('touchstart', startDrag, {passive: false});
+      window.addEventListener('mousemove', drag);
+      window.addEventListener('touchmove', drag, {passive: false});
+      window.addEventListener('mouseup', stopDrag);
+      window.addEventListener('touchend', stopDrag);
+    }
+
+    function startDrag(e) {
+      e.preventDefault();
+      isDragging = true;
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      startX = clientX;
+      startY = clientY;
+      const rect = chatContainer.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      chatContainer.style.right = 'auto';
+      chatContainer.style.bottom = 'auto';
+      chatContainer.style.left = startLeft + 'px';
+      chatContainer.style.top = startTop + 'px';
+    }
+
+    function drag(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      const dx = clientX - startX;
+      const dy = clientY - startY;
+      let newLeft = Math.max(0, Math.min(window.innerWidth - chatContainer.offsetWidth, startLeft + dx));
+      let newTop = Math.max(0, Math.min(window.innerHeight - chatContainer.offsetHeight, startTop + dy));
+      chatContainer.style.left = newLeft + 'px';
+      chatContainer.style.top = newTop + 'px';
+    }
+
+    function stopDrag() { isDragging = false; }
+    initDrag();
+
+    // Вкладки
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        if (tab.dataset.tab === 'login') { loginForm.style.display = 'block'; registerForm.style.display = 'none'; }
+        else { loginForm.style.display = 'none'; registerForm.style.display = 'block'; }
+      });
+    });
+
+    function showError(msg) {
+      errorToast.style.display = 'block';
+      errorToast.textContent = msg;
+      setTimeout(() => errorToast.style.display = 'none', 3000);
+    }
+
+    function showMainScreen() {
+      authScreen.style.display = 'none';
+      mainScreen.style.display = 'flex';
+      currentUserDisplay.textContent = currentUser;
+    }
+
+    async function apiCall(url, method, body) {
+      const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined });
+      return res.json();
+    }
+
+    // Логин/Регистрация
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      const login = document.getElementById('login-username').value.trim();
+      const pass = document.getElementById('login-password').value;
+      if (!login || !pass) return showError('Заполните поля');
+      const res = await apiCall('/api/login', 'POST', { login, password: pass });
+      if (res.success) {
+        currentUser = login;
+        socket.emit('register-socket', { login });
+        await loadCompanies();
+        showMainScreen();
+      } else showError(res.error||'Ошибка');
+    });
+
+    document.getElementById('register-btn').addEventListener('click', async () => {
+      const login = document.getElementById('reg-username').value.trim();
+      const pass = document.getElementById('reg-password').value;
+      if (!login || !pass) return showError('Заполните поля');
+      const res = await apiCall('/api/register', 'POST', { login, password: pass });
+      if (res.success) {
+        document.querySelector('[data-tab="login"]').click();
+        showError('Успешно! Войдите');
+      } else showError(res.error||'Ошибка');
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      currentUser = null; currentCompany = null;
+      authScreen.style.display = 'flex'; mainScreen.style.display = 'none';
+    });
+
+    async function loadCompanies() {
+      if (!currentUser) return;
+      const list = await apiCall(`/api/companies/${currentUser}`, 'GET');
+      companiesList = list;
+      renderCompanyTags();
+    }
+
+    function renderCompanyTags() {
+      companyTags.innerHTML = '';
+      companiesList.forEach(c => {
+        const tag = document.createElement('span');
+        tag.className = 'company-tag' + (currentCompany === c.id ? ' active' : '');
+        tag.innerHTML = `<i class="fas fa-users"></i> ${c.name}`;
+        tag.addEventListener('click', () => switchCompany(c.id));
+        companyTags.appendChild(tag);
+      });
+    }
+
+    function switchCompany(companyId) {
+      const company = companiesList.find(c => c.id === companyId);
+      if (!company) return;
+      currentCompany = companyId;
+      socket.emit('join-company', { companyId, login: currentUser });
+      renderCompanyTags();
+      addMemberArea.style.display = company.owner === currentUser ? 'flex' : 'none';
+      chatMessages.innerHTML = '';
+    }
+
+    socket.on('joined', (data) => {
+      console.log('Joined company', data);
+    });
+
+    socket.on('sync-state', (session) => {
+      if (session && session.url) {
+        urlInput.value = session.url;
+        navigateTo(session.url);
+      }
+    });
+
+    socket.on('navigate', ({ url }) => {
+      urlInput.value = url;
+      browserIframe.src = `/proxy?url=${encodeURIComponent(url)}&companyId=${currentCompany}`;
+    });
+
+    function navigateTo(url) {
+      if (!url.includes('://')) url = 'https://' + url;
+      urlInput.value = url;
+      browserIframe.src = `/proxy?url=${encodeURIComponent(url)}&companyId=${currentCompany}`;
+      if (currentCompany) socket.emit('navigate', { companyId: currentCompany, url });
+    }
+
+    document.getElementById('go-btn').addEventListener('click', ()=>navigateTo(urlInput.value));
+    urlInput.addEventListener('keypress', e=>{ if(e.key==='Enter') navigateTo(urlInput.value); });
+    document.getElementById('refresh-btn').addEventListener('click', ()=> browserIframe.src = browserIframe.src);
+    document.getElementById('back-btn').addEventListener('click', ()=>{ try { browserIframe.contentWindow.history.back(); } catch(e){} });
+    document.getElementById('forward-btn').addEventListener('click', ()=>{ try { browserIframe.contentWindow.history.forward(); } catch(e){} });
+
+    // Компании
+    document.getElementById('create-company-btn').addEventListener('click', ()=>{
+      document.getElementById('create-company-modal').style.display = 'flex';
+    });
+    document.getElementById('modal-cancel').addEventListener('click', ()=>{
+      document.getElementById('create-company-modal').style.display = 'none';
+    });
+    document.getElementById('modal-create').addEventListener('click', async ()=>{
+      const name = document.getElementById('new-company-name').value.trim();
+      if (!name) return showError('Введите название');
+      const res = await apiCall('/api/companies', 'POST', { owner: currentUser, name });
+      if (res.success) {
+        document.getElementById('create-company-modal').style.display = 'none';
+        document.getElementById('new-company-name').value = '';
+        await loadCompanies();
+      } else showError(res.error);
+    });
+
+    document.getElementById('add-member-btn').addEventListener('click', async ()=>{
+      const login = memberLoginInput.value.trim();
+      if (!login) return;
+      const res = await apiCall(`/api/companies/${currentCompany}/add-member`, 'POST', { login, addedBy: currentUser });
+      if (res.success) { memberLoginInput.value = ''; await loadCompanies(); showError('Добавлен'); }
+      else showError(res.error);
+    });
+
+    socket.on('member-added', ({ login }) => { showError(`${login} в компании`); loadCompanies(); });
+
+    // Чат
+    document.getElementById('chat-toggle').addEventListener('click', ()=> chatWindow.classList.toggle('open'));
+    document.getElementById('close-chat').addEventListener('click', ()=> chatWindow.classList.remove('open'));
+
+    function addMessage(from, text, isOwn) {
+      const div = document.createElement('div');
+      div.className = `message ${isOwn?'own':'other'}`;
+      div.innerHTML = `<div class="sender">${from}</div><div>${text}</div>`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addVoice(from, audioData, isOwn) {
+      const div = document.createElement('div');
+      div.className = `message ${isOwn?'own':'other'}`;
+      div.innerHTML = `<div class="sender">${from}</div>`;
+      const vd = document.createElement('div');
+      vd.className = 'voice-message';
+      const btn = document.createElement('button');
+      btn.className = 'play-voice-btn';
+      btn.innerHTML = '<i class="fas fa-play"></i>';
+      const audio = new Audio(audioData);
+      btn.addEventListener('click', ()=> audio.play());
+      vd.appendChild(btn);
+      vd.appendChild(document.createTextNode('Голосовое'));
+      div.appendChild(vd);
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    document.getElementById('send-btn').addEventListener('click', ()=>{
+      const text = chatInput.value.trim();
+      if (!text || !currentCompany) return;
+      socket.emit('chat-message', { companyId: currentCompany, from: currentUser, text });
+      addMessage(currentUser, text, true);
+      chatInput.value = '';
+    });
+
+    socket.on('chat-message', ({ from, text }) => { if (from !== currentUser) addMessage(from, text, false); });
+
+    // Голосовые
+    document.getElementById('voice-btn').addEventListener('click', async ()=>{
+      const btn = document.getElementById('voice-btn');
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+          mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              socket.emit('voice-message', { companyId: currentCompany, from: currentUser, audioData: reader.result });
+              addVoice(currentUser, reader.result, true);
+            };
+            reader.readAsDataURL(blob);
+            stream.getTracks().forEach(t=>t.stop());
+          };
+          mediaRecorder.start();
+          btn.classList.add('recording');
+          isRecording = true;
+        } catch(e) { showError('Нет доступа к микрофону'); }
+      } else {
+        mediaRecorder.stop();
+        btn.classList.remove('recording');
+        isRecording = false;
+      }
+    });
+
+    socket.on('voice-message', ({ from, audioData }) => { if (from !== currentUser) addVoice(from, audioData, false); });
+
+    // Старт
+    browserIframe.src = '/proxy?url=https://google.com&companyId=';
+  })();
+</script>
+</body>
+</html>
