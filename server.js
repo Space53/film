@@ -44,6 +44,7 @@ app.post('/api/companies', (req, res) => {
   const members = new Set([owner]);
   companies.set(id, { id, name, owner, members });
   user.companies.add(id);
+  companySessions.set(id, { url: 'https://google.com' });
   res.json({ success: true, company: { id, name, owner } });
 });
 
@@ -72,41 +73,57 @@ app.post('/api/companies/:id/add-member', (req, res) => {
   res.json({ success: true });
 });
 
-// ========== ПРОКСИ ДЛЯ ОБХОДА IFRAME ==========
+// ========== ПРОКСИ ==========
 app.use('/proxy', (req, res) => {
-  const targetUrl = req.query.url;
+  let targetUrl = req.query.url;
+  const companyId = req.query.companyId || '';
+
   if (!targetUrl) return res.status(400).send('url required');
+
+  // Добавляем https если нет протокола
+  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    targetUrl = 'https://' + targetUrl;
+  }
 
   const parsed = url.parse(targetUrl);
   const protocol = parsed.protocol === 'https:' ? https : http;
 
-  // Убираем /proxy из пути
-  const proxyPath = req.url.replace(/^\/proxy\?url=[^&]+/, '') || '/';
+  // Путь из оригинального запроса (убираем /proxy?url=...)
+  let reqPath = req.url;
+  const queryIndex = reqPath.indexOf('?');
+  if (queryIndex !== -1) {
+    const queryString = reqPath.substring(queryIndex + 1);
+    const params = new URLSearchParams(queryString);
+    params.delete('url');
+    params.delete('companyId');
+    const newQuery = params.toString();
+    reqPath = newQuery ? '?' + newQuery : '';
+  } else {
+    reqPath = '';
+  }
+
   const options = {
     hostname: parsed.hostname,
     port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-    path: parsed.path + proxyPath,
+    path: parsed.pathname + reqPath,
     method: req.method,
-    headers: {
-      ...req.headers,
-      host: parsed.hostname,
-      origin: parsed.protocol + '//' + parsed.hostname,
-      referer: parsed.protocol + '//' + parsed.hostname + '/'
-    }
+    headers: { ...req.headers }
   };
 
+  // Подменяем заголовки
+  options.headers.host = parsed.hostname;
+  options.headers.referer = targetUrl;
+  options.headers.origin = parsed.protocol + '//' + parsed.hostname;
   delete options.headers['accept-encoding'];
 
   const proxyReq = protocol.request(options, (proxyRes) => {
-    // Убираем запрещающие заголовки
+    // Убираем запрет iframe
     delete proxyRes.headers['x-frame-options'];
     delete proxyRes.headers['content-security-policy'];
     delete proxyRes.headers['content-security-policy-report-only'];
     proxyRes.headers['x-frame-options'] = 'ALLOWALL';
     proxyRes.headers['access-control-allow-origin'] = '*';
-    proxyRes.headers['access-control-allow-credentials'] = 'true';
 
-    // Если HTML - внедряем скрипт синхронизации
     const contentType = proxyRes.headers['content-type'] || '';
     const isHtml = contentType.includes('text/html');
 
@@ -121,7 +138,7 @@ app.use('/proxy', (req, res) => {
   if(window.__syncInjected) return;
   window.__syncInjected = true;
   const socket = io();
-  const companyId = '${req.query.companyId || ''}';
+  const companyId = '${companyId}';
   socket.emit('join-sync', {companyId});
 
   function send(type, payload){
@@ -177,23 +194,37 @@ app.use('/proxy', (req, res) => {
     if(e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO')
       send('video',{action:'seek',time:e.target.currentTime});
   }, true);
+
+  // Перехват ссылок для навигации через прокси
+  document.addEventListener('click', e=>{
+    const a = e.target.closest('a');
+    if(a && a.href && !a.href.startsWith('javascript:')){
+      e.preventDefault();
+      const newUrl = a.href;
+      window.parent.postMessage({type:'navigate', url:newUrl}, '*');
+    }
+  }, true);
 })();
 <\/script>
 `;
-        // Внедряем перед </body> или </head>
+
+        // Внедряем скрипт
         let injected = body;
         if (body.includes('</head>')) {
           injected = body.replace('</head>', syncScript + '</head>');
-        } else if (body.includes('</body>')) {
-          injected = body.replace('</body>', syncScript + '</body>');
+        } else if (body.includes('<body')) {
+          injected = body.replace('<body', syncScript + '<body');
         } else {
-          injected = body + syncScript;
+          injected = syncScript + body;
         }
 
-        // Меняем ссылки на прокси
-        injected = injected.replace(/href="\//g, `href="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
-        injected = injected.replace(/src="\//g, `src="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
-        injected = injected.replace(/action="\//g, `action="/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${req.query.companyId || ''}&path=/`);
+        // Подменяем ссылки форм и ссылок на прокси
+        const basePath = `/proxy?url=${encodeURIComponent(targetUrl)}&companyId=${companyId}`;
+        injected = injected.replace(/href="\//g, `href="${basePath}&path=/`);
+        injected = injected.replace(/src="\//g, `src="${basePath}&path=/`);
+        injected = injected.replace(/action="\//g, `action="${basePath}&path=/`);
+        injected = injected.replace(/href='\//g, `href='${basePath}&path=/`);
+        injected = injected.replace(/src='\//g, `src='${basePath}&path=/`);
 
         res.setHeader('content-type', 'text/html');
         res.setHeader('content-length', Buffer.byteLength(injected));
@@ -224,7 +255,6 @@ io.on('connection', (socket) => {
     const company = companies.get(companyId);
     if (!company || !company.members.has(login)) return socket.emit('error', 'Access denied');
     socket.join(`company-${companyId}`);
-    socket.emit('joined', { companyId });
     const session = companySessions.get(companyId) || { url: 'https://google.com' };
     socket.emit('sync-state', session);
   });
@@ -249,14 +279,14 @@ io.on('connection', (socket) => {
   });
 });
 
-// ========== ОТДАЁМ HTML ==========
+// ========== HTML ==========
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Sync Browser</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
@@ -279,40 +309,39 @@ app.get('/', (req, res) => {
     .url-box input { flex:1; background:transparent; border:none; color:#fff; font-size:15px; padding:12px 0; outline:none; }
     .url-box button { background:#0a84ff; border:none; color:#fff; padding:8px 16px; border-radius:26px; font-size:15px; font-weight:600; }
     .user-btn { background:#2c2c2e; border:none; color:#fff; padding:0 14px; height:44px; border-radius:30px; font-size:14px; display:flex; align-items:center; gap:6px; }
-    .companies-row { padding:10px; background:#0a0a0a; display:flex; gap:8px; overflow-x:auto; white-space:nowrap; }
-    .companies-row::-webkit-scrollbar { display:none; }
+    .companies-row { padding:10px; background:#0a0a0a; display:flex; gap:8px; overflow-x:auto; }
     .chip { background:#1c1c1e; padding:10px 18px; border-radius:40px; color:#ccc; font-size:15px; display:inline-flex; align-items:center; gap:6px; border:1px solid #333; }
-    .chip.active { background:#0a84ff; color:#fff; border-color:#0a84ff; }
+    .chip.active { background:#0a84ff; color:#fff; }
     .chip.create { background:transparent; border:1px dashed #0a84ff; color:#0a84ff; }
-    .add-panel { display:flex; gap:8px; padding:10px; background:#0a0a0a; align-items:center; }
-    .add-panel input { flex:1; background:#1c1c1e; border:1px solid #333; border-radius:30px; padding:14px 18px; color:#fff; font-size:15px; outline:none; }
+    .add-panel { display:flex; gap:8px; padding:10px; background:#0a0a0a; }
+    .add-panel input { flex:1; background:#1c1c1e; border:1px solid #333; border-radius:30px; padding:14px 18px; color:#fff; font-size:15px; }
     .add-panel button { width:50px; height:50px; border-radius:30px; background:#0a84ff; border:none; color:#fff; font-size:20px; }
     iframe { flex:1; width:100%; border:none; background:#fff; }
     #chat-container { position:fixed; bottom:90px; right:12px; width:calc(100vw - 24px); max-width:340px; z-index:9999; touch-action:none; }
-    .chat-window { background:#1c1c1e; border-radius:24px; border:1px solid #444; overflow:hidden; display:none; flex-direction:column; height:480px; max-height:60vh; }
+    .chat-window { background:#1c1c1e; border-radius:24px; overflow:hidden; display:none; flex-direction:column; height:480px; }
     .chat-window.open { display:flex; }
-    .chat-header { padding:16px; background:#0a0a0a; color:#fff; display:flex; justify-content:space-between; align-items:center; font-size:17px; font-weight:600; cursor:grab; }
+    .chat-header { padding:16px; background:#0a0a0a; color:#fff; display:flex; justify-content:space-between; cursor:grab; }
     .chat-msgs { flex:1; padding:14px; overflow-y:auto; background:#000; display:flex; flex-direction:column; gap:8px; }
     .msg { max-width:80%; padding:12px 16px; border-radius:20px; font-size:15px; }
     .msg.mine { align-self:flex-end; background:#0a84ff; color:#fff; }
     .msg.other { align-self:flex-start; background:#2c2c2e; color:#fff; }
-    .msg .name { font-size:12px; opacity:0.7; margin-bottom:3px; font-weight:600; }
+    .msg .name { font-size:12px; opacity:0.7; margin-bottom:3px; }
     .voice { display:flex; align-items:center; gap:10px; }
-    .play-btn { width:42px; height:42px; border-radius:30px; background:#0a84ff; border:none; color:#fff; font-size:16px; }
+    .play-btn { width:42px; height:42px; border-radius:30px; background:#0a84ff; border:none; color:#fff; }
     .chat-footer { padding:12px; background:#0a0a0a; display:flex; gap:8px; }
-    .chat-footer input { flex:1; background:#1c1c1e; border:1px solid #333; border-radius:40px; padding:14px 18px; color:#fff; font-size:15px; outline:none; }
+    .chat-footer input { flex:1; background:#1c1c1e; border:1px solid #333; border-radius:40px; padding:14px 18px; color:#fff; }
     .chat-footer button { width:50px; height:50px; border-radius:40px; background:#2c2c2e; border:none; color:#0a84ff; font-size:22px; }
     .chat-footer button.rec { background:#ff3b30; color:#fff; }
-    .chat-toggle { position:fixed; bottom:20px; right:20px; width:65px; height:65px; border-radius:45px; background:#0a84ff; border:none; color:#fff; font-size:30px; box-shadow:0 4px 15px rgba(10,132,255,0.4); z-index:10000; }
+    .chat-toggle { position:fixed; bottom:20px; right:20px; width:65px; height:65px; border-radius:45px; background:#0a84ff; border:none; color:#fff; font-size:30px; z-index:10000; }
     .modal { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.9); display:none; align-items:center; justify-content:center; z-index:20000; padding:20px; }
     .modal-card { background:#1c1c1e; padding:28px 24px; border-radius:36px; width:100%; }
     .modal-card h3 { color:#fff; font-size:22px; margin-bottom:24px; }
-    .modal-card input { width:100%; padding:18px; background:#0a0a0a; border:1px solid #333; border-radius:24px; color:#fff; font-size:17px; margin-bottom:24px; outline:none; }
+    .modal-card input { width:100%; padding:18px; background:#0a0a0a; border:1px solid #333; border-radius:24px; color:#fff; font-size:17px; margin-bottom:24px; }
     .modal-actions { display:flex; gap:12px; }
     .modal-actions button { flex:1; padding:16px; border-radius:30px; border:none; font-size:17px; font-weight:600; }
     .modal-cancel { background:#3a3a3c; color:#fff; }
     .modal-ok { background:#0a84ff; color:#fff; }
-    .toast { position:fixed; bottom:90px; left:20px; right:20px; background:#ff3b30; color:#fff; padding:14px; border-radius:40px; text-align:center; font-size:15px; display:none; z-index:15000; }
+    .toast { position:fixed; bottom:90px; left:20px; right:20px; background:#ff3b30; color:#fff; padding:14px; border-radius:40px; text-align:center; display:none; z-index:15000; }
   </style>
 </head>
 <body>
@@ -339,40 +368,40 @@ app.get('/', (req, res) => {
 
   <div id="main-screen">
     <div class="top-bar">
-      <button class="nav-btn" id="back-btn"><i class="fas fa-chevron-left"></i></button>
-      <button class="nav-btn" id="fwd-btn"><i class="fas fa-chevron-right"></i></button>
-      <button class="nav-btn" id="refresh-btn"><i class="fas fa-arrow-rotate-right"></i></button>
+      <button class="nav-btn" onclick="history.back()"><i class="fas fa-chevron-left"></i></button>
+      <button class="nav-btn" onclick="history.forward()"><i class="fas fa-chevron-right"></i></button>
+      <button class="nav-btn" onclick="iframe.src=iframe.src"><i class="fas fa-arrow-rotate-right"></i></button>
       <div class="url-box">
-        <input id="url-input" value="google.com" placeholder="URL">
-        <button id="go-btn">→</button>
+        <input id="url-input" value="google.com">
+        <button onclick="navTo(urlInput.value)">→</button>
       </div>
-      <button class="user-btn" id="logout-btn"><i class="fas fa-user"></i> <span id="user-name"></span></button>
+      <button class="user-btn" onclick="logout()"><i class="fas fa-user"></i> <span id="user-name"></span></button>
     </div>
 
     <div class="companies-row">
-      <div class="chip create" id="create-company-btn"><i class="fas fa-plus"></i> Новая</div>
+      <div class="chip create" onclick="showCreateModal()"><i class="fas fa-plus"></i> Новая</div>
       <div id="company-chips" style="display:flex; gap:8px;"></div>
     </div>
 
     <div class="add-panel" id="add-member-panel" style="display:none">
       <input id="add-member-input" placeholder="Логин участника">
-      <button id="add-member-btn"><i class="fas fa-user-plus"></i></button>
+      <button onclick="addMember()"><i class="fas fa-user-plus"></i></button>
     </div>
 
-    <iframe id="browser-iframe" allow="camera; microphone; fullscreen; autoplay"></iframe>
+    <iframe id="browser-iframe"></iframe>
 
     <div id="chat-container">
       <div class="chat-window" id="chat-window">
-        <div class="chat-header" id="chat-drag"><span><i class="fas fa-comment"></i> Чат</span><i class="fas fa-times" id="close-chat" style="padding:8px"></i></div>
+        <div class="chat-header" id="chat-drag"><span><i class="fas fa-comment"></i> Чат</span><i class="fas fa-times" onclick="chatWin.classList.remove('open')" style="padding:8px"></i></div>
         <div class="chat-msgs" id="chat-msgs"></div>
         <div class="chat-footer">
           <input id="chat-input" placeholder="Сообщение...">
-          <button id="mic-btn"><i class="fas fa-microphone"></i></button>
-          <button id="send-btn"><i class="fas fa-paper-plane"></i></button>
+          <button id="mic-btn" onclick="toggleMic()"><i class="fas fa-microphone"></i></button>
+          <button onclick="sendMsg()"><i class="fas fa-paper-plane"></i></button>
         </div>
       </div>
     </div>
-    <button class="chat-toggle" id="chat-toggle"><i class="fas fa-comment-dots"></i></button>
+    <button class="chat-toggle" onclick="chatWin.classList.toggle('open')"><i class="fas fa-comment-dots"></i></button>
   </div>
 
   <div class="modal" id="company-modal">
@@ -380,8 +409,8 @@ app.get('/', (req, res) => {
       <h3>Новая компания</h3>
       <input id="new-company-name" placeholder="Название">
       <div class="modal-actions">
-        <button class="modal-cancel" id="modal-cancel">Отмена</button>
-        <button class="modal-ok" id="modal-create">Создать</button>
+        <button class="modal-cancel" onclick="modal.style.display='none'">Отмена</button>
+        <button class="modal-ok" onclick="createCompany()">Создать</button>
       </div>
     </div>
   </div>
@@ -400,14 +429,15 @@ app.get('/', (req, res) => {
   const loginForm = document.getElementById('login-form');
   const regForm = document.getElementById('register-form');
   const userName = document.getElementById('user-name');
-  const urlInp = document.getElementById('url-input');
+  const urlInput = document.getElementById('url-input');
   const iframe = document.getElementById('browser-iframe');
   const chipsDiv = document.getElementById('company-chips');
   const addPanel = document.getElementById('add-member-panel');
   const toast = document.getElementById('toast');
   const chatWin = document.getElementById('chat-window');
   const chatMsgs = document.getElementById('chat-msgs');
-  const chatInp = document.getElementById('chat-input');
+  const chatInput = document.getElementById('chat-input');
+  const modal = document.getElementById('company-modal');
 
   // Перетаскивание чата
   const chatCont = document.getElementById('chat-container');
@@ -425,19 +455,19 @@ app.get('/', (req, res) => {
   window.addEventListener('touchmove', e=>{
     if(!drag)return; e.preventDefault();
     const t=e.touches[0];
-    let l=Math.max(0, Math.min(window.innerWidth-chatCont.offsetWidth, sl+(t.clientX-sx)));
-    let tp=Math.max(0, Math.min(window.innerHeight-chatCont.offsetHeight, st+(t.clientY-sy)));
-    chatCont.style.left=l+'px'; chatCont.style.top=tp+'px';
+    chatCont.style.left=Math.max(0, Math.min(window.innerWidth-chatCont.offsetWidth, sl+(t.clientX-sx)))+'px';
+    chatCont.style.top=Math.max(0, Math.min(window.innerHeight-chatCont.offsetHeight, st+(t.clientY-sy)))+'px';
   });
   window.addEventListener('touchend', ()=>drag=false);
 
+  // Вкладки
   document.querySelectorAll('.auth-tab').forEach(t=>{
-    t.addEventListener('click', ()=>{
+    t.onclick = ()=>{
       document.querySelectorAll('.auth-tab').forEach(x=>x.classList.remove('active'));
       t.classList.add('active');
       loginForm.style.display = t.dataset.tab==='login'?'block':'none';
       regForm.style.display = t.dataset.tab==='login'?'none':'block';
-    });
+    };
   });
 
   function showToast(msg){ toast.style.display='block'; toast.textContent=msg; setTimeout(()=>toast.style.display='none',2500); }
@@ -465,7 +495,7 @@ app.get('/', (req, res) => {
     else showToast(res.error||'Ошибка');
   };
 
-  document.getElementById('logout-btn').onclick = ()=>{
+  window.logout = ()=>{
     currentUser=null; currentCompany=null;
     authScr.style.display='flex'; mainScr.style.display='none';
   };
@@ -497,33 +527,26 @@ app.get('/', (req, res) => {
     chatMsgs.innerHTML = '';
   }
 
-  socket.on('sync-state', s=>{ if(s&&s.url){ urlInp.value=s.url; navTo(s.url); } });
-  socket.on('navigate', d=>{ urlInp.value=d.url; navTo(d.url); });
+  socket.on('sync-state', s=>{ if(s&&s.url){ urlInput.value=s.url.replace('https://',''); navTo(s.url); } });
+  socket.on('navigate', d=>{ urlInput.value=d.url.replace('https://',''); navTo(d.url); });
 
-  function navTo(url){
+  window.navTo = function(url){
     if(!url.includes('://')) url='https://'+url;
-    urlInp.value=url;
-    const proxyUrl = '/proxy?url=' + encodeURIComponent(url) + '&companyId=' + (currentCompany||'');
-    iframe.src = proxyUrl;
+    urlInput.value = url.replace('https://','');
+    iframe.src = '/proxy?url=' + encodeURIComponent(url) + '&companyId=' + (currentCompany||'');
     if(currentCompany) socket.emit('navigate',{companyId:currentCompany, url});
-  }
+  };
 
-  document.getElementById('go-btn').onclick = ()=> navTo(urlInp.value);
-  document.getElementById('refresh-btn').onclick = ()=> iframe.src=iframe.src;
-  document.getElementById('back-btn').onclick = ()=>{ try{iframe.contentWindow.history.back()}catch(e){} };
-  document.getElementById('fwd-btn').onclick = ()=>{ try{iframe.contentWindow.history.forward()}catch(e){} };
-
-  document.getElementById('create-company-btn').onclick = ()=> document.getElementById('company-modal').style.display='flex';
-  document.getElementById('modal-cancel').onclick = ()=> document.getElementById('company-modal').style.display='none';
-  document.getElementById('modal-create').onclick = async ()=>{
+  window.showCreateModal = ()=> modal.style.display='flex';
+  window.createCompany = async ()=>{
     const name = document.getElementById('new-company-name').value.trim();
     if(!name) return showToast('Название?');
     const res = await api('/api/companies','POST',{owner:currentUser,name});
-    if(res.success){ document.getElementById('company-modal').style.display='none'; loadCompanies(); }
+    if(res.success){ modal.style.display='none'; document.getElementById('new-company-name').value=''; loadCompanies(); }
     else showToast(res.error);
   };
 
-  document.getElementById('add-member-btn').onclick = async ()=>{
+  window.addMember = async ()=>{
     const login = document.getElementById('add-member-input').value.trim();
     if(!login) return;
     const res = await api('/api/companies/'+currentCompany+'/add-member','POST',{login, addedBy:currentUser});
@@ -533,9 +556,6 @@ app.get('/', (req, res) => {
 
   socket.on('member-added', ()=> loadCompanies());
 
-  document.getElementById('chat-toggle').onclick = ()=> chatWin.classList.toggle('open');
-  document.getElementById('close-chat').onclick = ()=> chatWin.classList.remove('open');
-
   function addMsg(from, txt, mine){
     const d=document.createElement('div');
     d.className = 'msg '+(mine?'mine':'other');
@@ -543,6 +563,7 @@ app.get('/', (req, res) => {
     chatMsgs.appendChild(d);
     chatMsgs.scrollTop = chatMsgs.scrollHeight;
   }
+
   function addVoice(from, data, mine){
     const d=document.createElement('div');
     d.className = 'msg '+(mine?'mine':'other');
@@ -561,16 +582,17 @@ app.get('/', (req, res) => {
     chatMsgs.scrollTop = chatMsgs.scrollHeight;
   }
 
-  document.getElementById('send-btn').onclick = ()=>{
-    const txt = chatInp.value.trim();
+  window.sendMsg = ()=>{
+    const txt = chatInput.value.trim();
     if(!txt||!currentCompany) return;
     socket.emit('chat-message',{companyId:currentCompany, from:currentUser, text:txt});
     addMsg(currentUser, txt, true);
-    chatInp.value = '';
+    chatInput.value = '';
   };
+
   socket.on('chat-message', d=>{ if(d.from!==currentUser) addMsg(d.from, d.text, false); });
 
-  document.getElementById('mic-btn').onclick = async ()=>{
+  window.toggleMic = async ()=>{
     const btn = document.getElementById('mic-btn');
     if(!recording){
       try{
@@ -598,7 +620,15 @@ app.get('/', (req, res) => {
       recording = false;
     }
   };
+
   socket.on('voice-message', d=>{ if(d.from!==currentUser) addVoice(d.from, d.audioData, false); });
+
+  // Слушаем навигацию из iframe
+  window.addEventListener('message', e=>{
+    if(e.data && e.data.type === 'navigate'){
+      navTo(e.data.url);
+    }
+  });
 
   navTo('google.com');
 </script>
